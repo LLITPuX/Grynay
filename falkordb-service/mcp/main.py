@@ -15,6 +15,22 @@ app = FastAPI(title="FalkorDB MCP Server", version="0.1.0")
 db_client = None
 db_graph = None
 
+def get_db():
+    global db_client, db_graph
+    if db_graph is None:
+        db_host = os.getenv("FALKORDB_HOST", "localhost")
+        if os.getenv("FALKORDB_PORT", None) is None:
+            db_host = "falkordb"
+        db_port = int(os.getenv("FALKORDB_PORT", "6379"))
+        try:
+            db_client = FalkorDB(host=db_host, port=db_port)
+            db_graph = db_client.select_graph('Grynya')
+            logger.info("FalkorDB is connected successfully lazily!")
+        except Exception as e:
+            logger.error(f"FalkorDB lazy connection failed: {e}")
+            raise e
+    return db_graph
+
 @app.on_event("startup")
 async def startup_event():
     global db_client, db_graph
@@ -61,10 +77,11 @@ def e_str(value):
 async def query_graph(query: str) -> str:
     """Виконує Cypher запит до бази FalkorDB та повертає результат."""
     try:
-        if not db_graph:
+        graph = get_db()
+        if not graph:
             return json.dumps({"status": "error", "message": "FalkorDB is not connected"})
         
-        result = db_graph.query(query)
+        result = graph.query(query)
         res_list = []
         for record in result.result_set:
             res_list.append(record)
@@ -75,8 +92,11 @@ async def query_graph(query: str) -> str:
 @mcp.tool()
 async def create_session(session_id: str, name: str, topic: str, trigger: str, date: str, year: int) -> str:
     """Відкриває нову сесію в графі та налаштовує хронологічні вузли (Year, Day)."""
-    if not db_graph: return json.dumps({"status": "error", "message": "DB disconnected"})
-    
+    try:
+        graph = get_db()
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+        
     queries = []
     # 1. Session
     props = f"name: {e_str(name)}, topic: {e_str(topic)}, status: 'active', trigger: {e_str(trigger)}"
@@ -93,7 +113,7 @@ async def create_session(session_id: str, name: str, topic: str, trigger: str, d
     results = []
     for q in queries:
         try:
-            db_graph.query(q)
+            graph.query(q)
             results.append({"query": q, "status": "success"})
         except Exception as e:
             results.append({"query": q, "status": "error", "message": str(e)})
@@ -106,7 +126,11 @@ async def add_node(node_type: str, node_data: dict, day_id: str = None, time: st
     Додає вузол в граф та зв'язує його з днем та іншими вузлами.
     relations is a list of dicts: [{"type": "PART_OF", "target_id": "session_01", "props": {}}]
     """
-    if not db_graph: return json.dumps({"status": "error", "message": "DB disconnected"})
+    try:
+        graph = get_db()
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+        
     n_id = node_data.get('id')
     if not n_id:
         return json.dumps({"status": "error", "message": "Missing node id"})
@@ -133,7 +157,7 @@ async def add_node(node_type: str, node_data: dict, day_id: str = None, time: st
     results = []
     for q in queries:
         try:
-            db_graph.query(q)
+            graph.query(q)
             results.append({"query": q, "status": "success"})
         except Exception as e:
             results.append({"query": q, "status": "error", "message": str(e)})
@@ -143,7 +167,10 @@ async def add_node(node_type: str, node_data: dict, day_id: str = None, time: st
 @mcp.tool()
 async def link_nodes(source_id: str, target_id: str, rel_type: str, props: dict = None) -> str:
     """Створює зв'язок між двома вузлами (наприклад NEXT)."""
-    if not db_graph: return json.dumps({"status": "error", "message": "DB disconnected"})
+    try:
+        graph = get_db()
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
     
     if props:
         ps = ", ".join([f"{k}: {e_str(v)}" for k, v in props.items()])
@@ -151,7 +178,7 @@ async def link_nodes(source_id: str, target_id: str, rel_type: str, props: dict 
     else:
         q = f"MATCH (s {{id: '{source_id}'}}), (t {{id: '{target_id}'}}) MERGE (s)-[:{rel_type}]->(t)"
     try:
-        db_graph.query(q)
+        graph.query(q)
         return json.dumps({"status": "success", "query": q})
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
@@ -159,7 +186,10 @@ async def link_nodes(source_id: str, target_id: str, rel_type: str, props: dict 
 @mcp.tool()
 async def update_last_event(session_id: str, event_id: str) -> str:
     """Оновлює вказівник LAST_EVENT для конкретної сесії."""
-    if not db_graph: return json.dumps({"status": "error", "message": "DB disconnected"})
+    try:
+        graph = get_db()
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
     
     queries = [
         f"MATCH (s:Session {{id: '{session_id}'}})-[rel:LAST_EVENT]->() DELETE rel",
@@ -168,7 +198,7 @@ async def update_last_event(session_id: str, event_id: str) -> str:
     results = []
     for q in queries:
         try:
-            db_graph.query(q)
+            graph.query(q)
             results.append({"query": q, "status": "success"})
         except Exception as e:
             results.append({"query": q, "status": "error", "message": str(e)})
