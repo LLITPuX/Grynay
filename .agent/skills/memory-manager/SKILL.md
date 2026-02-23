@@ -108,4 +108,4 @@ docker cp "c:\Antigarvity_workspace\falkordb-service\debug\payload.json" grynya-
 ```
 
 ## Правило для Читання (Пошуку в Графі)
-Ти маєш право використовувати In-Line Cypher (команда `docker exec grynya-bridge redis-cli -h falkordb GRAPH.QUERY Grynya "MATCH..."`)  **ТІЛЬКИ ДЛЯ ЧИТАННЯ** даних. Всі операції модифікації робляться виключно через JSON-bridge.
+Ти маєш право використовувати In-Line Cypher (команда `docker exec falkordb redis-cli GRAPH.QUERY Grynya "MATCH..."`)  **ТІЛЬКИ ДЛЯ ЧИТАННЯ** даних. Всі операції модифікації робляться виключно через JSON-bridge.
