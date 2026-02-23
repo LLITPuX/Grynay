@@ -68,7 +68,7 @@ def main():
             props = ", ".join([f"{k}: {e_str(v)}" for k, v in n_data.items() if k != 'id'])
             queries.append(f"MERGE (n:{n_type} {{id: '{n_id}'}}) SET n += {{{props}}}")
 
-            if 'chronology' in data and data['chronology'].get('time'):
+            if n_type != 'Entity' and 'chronology' in data and data['chronology'].get('time'):
                 t = data['chronology']['time']
                 d_id = data['chronology'].get('day_id')
                 queries.append(
