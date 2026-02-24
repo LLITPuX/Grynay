@@ -19,21 +19,6 @@ services:
     networks:
       - grynya-net
 
-  bridge:
-    build:
-      context: .
-      dockerfile: bridge.Dockerfile
-    container_name: grynya-bridge
-    depends_on:
-      falkordb:
-        condition: service_healthy
-    volumes:
-      - ./scripts:/app/scripts
-    restart: unless-stopped
-    stdin_open: true
-    networks:
-      - grynya-net
-
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
