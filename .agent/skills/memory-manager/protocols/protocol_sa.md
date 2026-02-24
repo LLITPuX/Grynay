@@ -11,61 +11,31 @@
 > Агент НІКОЛИ не може зберегти фідбек без своєї відповіді та аналізу.
 > Analysis — це НЕ опція. Без нього хронологічний ланцюг розривається.
 
-## Твої дії (Формування JSON для `memory_bridge.py`)
+## Твої дії (Взаємодія з MCP)
 
-Ти маєш згенерувати JSON та додати його до існуючої гілки діалогу.
+Ти маєш використати нативні інструменти (tools) MCP-сервера для збереження трьох нових вузлів та оновлення графа.
 
-### Крок 1: Вкажи Сесію
+### Крок 1: Збереження вузлів тріади (Feedback, Response, Analysis)
+Виклич інструмент `mcp_falkordb_add_node` послідовно для кожного з трьох нових вузлів, передаючи їх атрибути (у словнику `node_data`), `day_id`, `time` та необхідні базові зв'язки (до конкретної `Session`, а також `FEEDBACK_ON` / `RESPONDS_TO` / `ANALYZES` та `NEXT` для хронологічного ланцюга).
 
-Додай блок `session` лише з поточним `id` (статус НЕ змінюється).
+**1. Feedback:**
+- Атрибути: `id`, `text`.
+- Зв'язки: `PART_OF` (target: Session), `FEEDBACK_ON` (target: ID попереднього Analysis або Response), `NEXT` (source_id: ID попереднього Analysis).
 
-### Крок 2: Створи вузол `:Feedback`
+**2. Response:** 
+- Атрибути: `id`, `name`, `author: 'Grynya'`, `summary`, `full_text` (ПОВНИЙ текст СЛОВО В СЛОВО), `type: 'text'`.
+- Зв'язки: `PART_OF` (target: Session), `RESPONDS_TO` (target: Feedback), `NEXT` (source_id: Feedback).
 
-Збережи текст коментаря користувача.
+**3. Analysis:**
+- Атрибути: `id`, `name`, `type: 'response_analysis'`, `verdict`, `rules_used`, `errors`, `lessons`.
+- Зв'язки: `PART_OF` (target: Session), `ANALYZES` (target: Response), `NEXT` (source_id: Response).
 
-### Крок 3: Створи вузол `:Response`
+### Крок 2: Витяг та пакетне збереження сутностей (batch tools)
+1. ОБОВ'ЯЗКОВО! Проаналізуй обмін репліками та витягни або онови УСІ релевантні сутності (`Entity` - не лише нові, а й ті що вже згадувалися).
+2. Виклич інструмент `mcp_falkordb_batch_add_nodes`, передавши `node_type: "Entity"` та масив цих сутностей у параметр `nodes`.
+3. Після цього виклич інструмент `mcp_falkordb_batch_link_nodes` передавши масив усіх релейшенів для сутностей: `INVOLVED_IN` (target: Session), `MENTIONS` (source: Feedback/Response/Analysis, target: Entity).
 
-> [!IMPORTANT]
-> **ОБОВ'ЯЗКОВО!** Збережи ПОВНИЙ текст своєї відповіді СЛОВО В СЛОВО.
+### Крок 3: Оновлення LAST_EVENT
+Виклич інструмент `mcp_falkordb_update_last_event`, передавши `session_id` та `event_id` (ID щойно створеного Analysis-вузла).
 
-Атрибути: `id`, `name`, `author: 'Grynya'`, `summary`, `full_text` (ПОВНИЙ текст), `type: 'text'`.
-
-### Крок 4: Створи вузол `:Analysis`
-
-> [!IMPORTANT]
-> **ОБОВ'ЯЗКОВО!** Analysis створюється для КОЖНОГО Response без винятків.
-
-Тип: `response_analysis`. Включає `verdict`, `rules_used`, `errors`, `lessons`.
-
-*   Самоаналіз: Чи правильно я зрозумів фідбек? Які правила використав? Де помилився?
-*   Якщо помилок немає — `errors: []`, але Analysis все одно створюється.
-
-### Крок 5: Витягни сутності (`:Entity`)
-
-ОБОВ'ЯЗКОВО! Проаналізуй поточний обмін репліками та витягни або онови **УСІ** релевантні сутності (не лише нові, а й ті що вже згадувалися), щоб зв'язати їх з новими вузлами.
-
-### Крок 6: Налаштуй Зв'язки (`relations`)
-
-*   Всі нові вузли `PART_OF` поточна Session.
-*   Feedback `FEEDBACK_ON` попередній Response (або Analysis).
-*   Response `RESPONDS_TO` Feedback.
-*   Analysis `ANALYZES` Response.
-*   Feedback, Response, Analysis `MENTIONS` Entity.
-
-### Крок 7: Налаштуй Хронологію (`chronology`)
-
-*   Вкажи точний час (`time`).
-*   Створи `next_links`:
-    *   Від попереднього останнього вузла (`last_event_id` сесії) до Feedback.
-    *   Від Feedback до Response.
-    *   Від Response до Analysis.
-*   Онови `last_event_id` на ID **Analysis** (НЕ Response!).
-
-> [!CAUTION]
-> **`last_event_id` ЗАВЖДИ вказує на Analysis, бо це останній вузол у трійці.**
-> Якщо вказати на Response — наступний Feedback не зв'яжеться з Analysis, і ланцюг порушиться.
-
-**Виконання:** Передай JSON скрипту `memory_bridge.py` через `run_command` та поверни користувачу підтвердження "✅ Артефакт збережено [ID вузлів]".
-
-> [!IMPORTANT]
-> **Очищення:** Якщо використовувався тимчасовий файл, видали його одразу після завершення `run_command`.
+**Виконання:** Поверни користувачу підтвердження "✅ Артефакти збережено [ID вузлів]".

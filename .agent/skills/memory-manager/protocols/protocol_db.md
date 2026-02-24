@@ -5,9 +5,9 @@
 **Тригер:** Команда `/db "текст запиту"` від користувача.
 **Семантика:** `/db` відкриває нову сесію у графі `Grynya`.
 
-## Твої дії (Формування JSON для `memory_bridge.py`)
+## Твої дії (Взаємодія з MCP)
 
-Щоб відкрити сесію, ти маєш згенерувати JSON (згідно з `grynya-schema.md`) та передати його скрипту.
+Щоб відкрити сесію, ти маєш використати нативні інструменти (tools) MCP-сервера для графа `Grynya`.
 
 > [!CAUTION]
 > **КРИТИЧНЕ ПРАВИЛО: `/db` = Request + Response + Analysis.**
@@ -16,64 +16,38 @@
 > Якщо ти не створив Response і Analysis при `/db` — це помилка протоколу.
 
 ### Крок 0: Верифікація ланцюга сесій (ОБОВ'ЯЗКОВО)
-
 Перед створенням нової сесії:
-1. **Визнач ID останньої сесії** запитом до графа:
-   ```powershell
-   docker exec falkordb redis-cli GRAPH.QUERY Grynya "MATCH (s:Session) RETURN s.id ORDER BY s.id DESC LIMIT 1"
-   ```
-2. **Перевір інкрементальність:** Новий `session_ID` має бути послідовним (session_005 → session_006).
-3. **Збережи ID попередньої сесії** — він потрібен для NEXT-зв'язку.
+1. Визнач ID останньої сесії, викликавши інструмент `mcp_falkordb_query_graph` із запитом:
+   `MATCH (s:Session) RETURN s.id ORDER BY s.id DESC LIMIT 1`
+2. Новий `session_ID` має бути послідовним (наприклад, session_005 → session_006).
+3. Збережи ID попередньої сесії — він потрібен для встановлення зв'язку NEXT.
 
-### Крок 1: Створи вузол `:Session`
+### Крок 1: Ініціалізація сесії (create_session)
+Виклич інструмент `mcp_falkordb_create_session` з потрібними параметрами:
+`session_id`, `name`, `topic`, `trigger: '/db'`, `date` (напр., '2026-02-24'), `year` (напр., 2026).
+Це автоматично створить вузли Session, Year, Day та налаштує їхні структурні зв'язки.
 
-Блок `session` в JSON з атрибутами `id`, `name`, `topic` (коротко), `status: 'active'`, `trigger: '/db'`.
+### Крок 2: Збереження вузлів тріади (Request, Response, Analysis)
+Виклич інструмент `mcp_falkordb_add_node` послідовно для кожного з трьох базових вузлів, передавши їх атрибути (у словнику `node_data`, де `id` є обов'язковим), `day_id` (напр., `d_2026_02_24`), поточний `time`, та необхідні базові зв'язки.
 
-### Крок 2: Створи вузол `:Request`
+**1. Request:**
+- Атрибути: `id`, `text` (запит користувача).
+- Зв'язки (у параметрі `relations`): `PART_OF` (target: поточна Session), `NEXT` (target: поточна Session, де source_id — попередня Session. *Або використай окремий виклик `mcp_falkordb_link_nodes` для попередньої сесії*).
 
-Збережи текст запиту від користувача.
+**2. Response:** 
+- Атрибути: `id`, `name`, `author: 'Grynya'`, `summary`, `full_text` (ПОВНИЙ текст СЛОВО В СЛОВО), `type: 'text'`.
+- Зв'язки: `PART_OF` (Session), `RESPONDS_TO` (Request), `NEXT` (де source — Request).
 
-### Крок 3: Створи вузол `:Response`
+**3. Analysis:**
+- Атрибути: `id`, `name`, `type: 'response_analysis'`, `verdict`, `rules_used`, `errors`, `lessons`.
+- Зв'язки: `PART_OF` (Session), `ANALYZES` (Response), `NEXT` (де source — Response).
 
-> [!IMPORTANT]
-> **ОБОВ'ЯЗКОВО!** Збережи ПОВНИЙ текст своєї відповіді. Не відкладай це "на потім".
+### Крок 3: Витяг та пакетне збереження сутностей (batch tools)
+1. Проаналізуй запит користувача ТА свою відповідь. Витягни УСІ значущі концепції (Entities).
+2. Виклич інструмент `mcp_falkordb_batch_add_nodes`, передавши `node_type: "Entity"` та масив цих сутностей у параметр `nodes` (для `:Entity` day_id та time передавати не потрібно).
+3. Виклич інструмент `mcp_falkordb_batch_link_nodes` передавши масив всіх зв'язків для сутностей: `INVOLVED_IN` (target: поточна Session) та `MENTIONS` (source: Request/Response/Analysis, target: Entity).
 
-Атрибути: `id`, `name`, `author: 'Grynya'`, `summary` (коротко), `full_text` (ПОВНИЙ текст СЛОВО В СЛОВО), `type: 'text'`.
+### Крок 4: Оновлення LAST_EVENT
+Виклич інструмент `mcp_falkordb_update_last_event`, щоб оновити вказівник `LAST_EVENT` сесії на ID вузла Analysis.
 
-### Крок 4: Створи вузол `:Analysis`
-
-> [!IMPORTANT]
-> **ОБОВ'ЯЗКОВО!** Кожен Response має супроводжуватися Analysis.
-
-Атрибути: `id`, `name`, `type: 'response_analysis'`, `verdict`, `rules_used`, `errors` (порожній масив якщо немає), `lessons`.
-Зв'язки: `ANALYZES` → Response, `PART_OF` → Session.
-
-### Крок 5: Витягни сутності (`:Entity`)
-
-Уважно проаналізуй запит користувача ТА свою відповідь. Витягни **УСІ** значущі концепції, технології чи правила.
-
-### Крок 6: Налаштуй Зв'язки (`relations`)
-
-*   Request `PART_OF` Session.
-*   Response `PART_OF` Session.
-*   Response `RESPONDS_TO` Request.
-*   Analysis `PART_OF` Session.
-*   Analysis `ANALYZES` Response.
-*   Session `INVOLVES` Entity.
-*   Request, Response, Analysis `MENTIONS` Entity.
-
-### Крок 7: Налаштуй Хронологію (`chronology`)
-
-*   Вкажи поточний рік (`year`), дату (`date`), час (`time`).
-*   Вкажи `day_id` (наприклад, `d_2026_02_22`).
-*   Створи `next_links`:
-    *   Від попередньої сесії (`session_X`) до нової (`session_Y`) — **використай ID з Кроку 0!**
-    *   Від нової сесії до Request.
-    *   Від Request до Response.
-    *   Від Response до Analysis.
-*   Онови `last_event_id` на ID Analysis (НЕ Response!).
-
-**Виконання:** Передай JSON скрипту `memory_bridge.py` через `run_command`. 
-
-> [!IMPORTANT]
-> **Очищення:** Якщо використовувався тимчасовий файл, видали його одразу після завершення `run_command`.
+**Виконання:** Поверни користувачу підтвердження "✅ Сесію ініціалізовано. Артефакти збережено [ID вузлів]".

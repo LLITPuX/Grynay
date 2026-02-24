@@ -31,25 +31,20 @@ description: Навичка для управління довгостроков
 
 Ця навичка активується, коли користувач починає діалог з використання спеціальних "протоколів сесії": `/db`, `/sa`, `/ss`. 
 
-## Твій інструмент: `memory_bridge.py`
+## Твій інструмент: MCP Server
 
-Щоб створити записи у графі, ти не використовуєш `redis-cli` безпосередньо. Замість цього ти формуєш єдиний **JSON-об'єкт**, зберігаєш його у тимчасовий файл, копіюєш у контейнер та передаєш скрипту. Це гарантує коректне збереження кирилиці (UTF-8) незалежно від налаштувань термінала.
+Щоб працювати з графом, ти використовуєш підключені до тебе нативні інструменти сервера Model Context Protocol (MCP). Всі операції створення та модифікації виконуються через ці спеціалізовані **Інструменти (Tools)**. 
 
-**Алгоритм запису (через інструмент `run_command`):**
-1. Створи файл `falkordb-service/debug/payload.json` (UTF-8).
-2. Виконай команду:
-```powershell
-# Копіюємо файл у контейнер та запускаємо міст
-docker cp "c:\Antigarvity_workspace\falkordb-service\debug\payload.json" grynya-bridge:/tmp/payload.json ; docker exec grynya-bridge python -c "import json; import subprocess; payload=open('/tmp/payload.json', 'rb').read(); p=subprocess.Popen(['python', '/app/scripts/memory_bridge.py'], stdin=subprocess.PIPE); p.communicate(input=payload)"
-```
-*Зверни увагу: Використання `docker cp` та внутрішнього читання через Python-скрипт запобігає появі знаків питання `????` замість кирилиці.*
+**Основні інструменти:**
+- `mcp_falkordb_create_session`: Відкриття нової сесії та хронології.
+- `mcp_falkordb_add_node`: Створення окремих вузлів (Request, Response, Analysis, Feedback).
+- `mcp_falkordb_link_nodes`: Створення зв'язків.
+- `mcp_falkordb_batch_add_nodes`: Пакетне створення однотипних вузлів (Entity).
+- `mcp_falkordb_batch_link_nodes`: Пакетне створення зв'язків для сутностей.
+- `mcp_falkordb_update_last_event`: Зсув вказівника `LAST_EVENT`.
+- `mcp_falkordb_query_graph`: Виконання Cypher запитів.
 
-### Управління Тимчасовими Файлами та Логами (Log Management)
-
-> [!IMPORTANT]
-> **ПРАВИЛО ГІГІЄНИ:** Ти не повинен захаращувати корінь проєкту тимчасовими файлами.
-> 1. **Очищення:** Якщо ти створюєш тимчасовий JSON-файл для передачі в `memory_bridge.py` (щоб уникнути проблем із лапками в PowerShell), ти **ЗОБОВ'ЯЗАНИЙ** видалити його (команда `rm` або `del`) одразу після успішного виконання запису.
-> 2. **Налагодження (Debug):** Для збереження логів запитів (якщо це потрібно для дебагу) використовуй виключно директорію `falkordb-service/debug/`.
+*Це гарантує архітектурну чистоту та позбавляє необхідності створювати тимчасові JSON-файли чи використовувати bash скрипти.*
 
 ## Схема Вузлів та Зв'язків
 
@@ -72,79 +67,6 @@ docker cp "c:\Antigarvity_workspace\falkordb-service\debug\payload.json" grynya-
 ### 3. `/ss [Коментар/Фідбек]` (Завершення сесії та Бекап)
 Деталі протоколу: `c:\Antigarvity_workspace\.agent\skills\memory-manager\protocols\protocol_ss.md`
 
-## Приклад Структури JSON для `/db`
-*(Зверни увагу: тріада Request + Response + Analysis — ОБОВ'ЯЗКОВА!)*
-
-```json
-{
-  "session": {
-    "id": "session_007",
-    "name": "Session007",
-    "topic": "Привіт",
-    "status": "active",
-    "trigger": "/db"
-  },
-  "chronology": {
-    "day_id": "d_2026_02_22",
-    "date": "2026-02-22",
-    "year": 2026,
-    "time": "19:00:00",
-    "last_event_id": "ana_007_01",
-    "next_links": [
-      { "source_id": "session_006", "target_id": "session_007" },
-      { "source_id": "session_007", "target_id": "req_007_01" },
-      { "source_id": "req_007_01", "target_id": "res_007_01" },
-      { "source_id": "res_007_01", "target_id": "ana_007_01" }
-    ]
-  },
-  "nodes": [
-    {
-      "type": "Request",
-      "data": { 
-        "id": "req_007_01", 
-        "name": "Request1",
-        "author": "user", 
-        "text": "Привіт",
-        "type": "text"
-      },
-      "relations": [
-        { "type": "PART_OF", "target_id": "session_007" }
-      ]
-    },
-    {
-      "type": "Response",
-      "data": { 
-        "id": "res_007_01", 
-        "name": "Response1",
-        "author": "Grynya", 
-        "summary": "Привітання", 
-        "full_text": "Привіт! Чим можу допомогти?",
-        "type": "text"
-      },
-      "relations": [
-        { "type": "PART_OF", "target_id": "session_007" },
-        { "type": "RESPONDS_TO", "target_id": "req_007_01" }
-      ]
-    },
-    {
-      "type": "Analysis",
-      "data": {
-        "id": "ana_007_01",
-        "name": "Analysis1",
-        "type": "response_analysis",
-        "verdict": "correct",
-        "rules_used": "protocol_db, grynya-schema",
-        "errors": "",
-        "lessons": "Перший обмін, помилок немає"
-      },
-      "relations": [
-        { "type": "PART_OF", "target_id": "session_007" },
-        { "type": "ANALYZES", "target_id": "res_007_01" }
-      ]
-    }
-  ]
-}
-```
-
 ## Правило для Читання (Пошуку в Графі)
-Ти маєш право використовувати In-Line Cypher (команда `docker exec falkordb redis-cli GRAPH.QUERY Grynya "MATCH..."`)  **ТІЛЬКИ ДЛЯ ЧИТАННЯ** даних. Всі операції модифікації робляться виключно через JSON-bridge.
+
+Для читання, повнотекстового пошуку та верифікації стану графа ти використовуєш інструмент `mcp_falkordb_query_graph`. Цей інструмент приймає будь-який Cypher запит і автоматично повертає результати з бази. Використовуй його перед відкриттям сесій (щоб перевірити останні ID), або коли потрібно згадати точні ID попередніх сутностей.

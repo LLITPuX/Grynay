@@ -204,3 +204,72 @@ async def update_last_event(session_id: str, event_id: str) -> str:
             results.append({"query": q, "status": "error", "message": str(e)})
     return json.dumps({"status": "success", "results": results})
 
+@mcp.tool()
+async def batch_add_nodes(node_type: str, nodes: list, day_id: str = None, time: str = None) -> str:
+    """
+    Додає декілька вузлів одного типу (наприклад, Entity) в граф за один раз.
+    nodes - список словників (dict) з атрибутами вузлів, включаючи обов'язковий 'id'.
+    """
+    try:
+        graph = get_db()
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+    queries = []
+    for node_data in nodes:
+        n_id = node_data.get('id')
+        if not n_id:
+            continue
+        
+        props = ", ".join([f"{k}: {e_str(v)}" for k, v in node_data.items() if k != 'id'])
+        queries.append(f"MERGE (n:{node_type} {{id: '{n_id}'}}) SET n += {{{props}}}")
+        
+        if day_id and time and node_type != 'Entity':
+            queries.append(f"MATCH (n {{id: '{n_id}'}}), (d:Day {{id: '{day_id}'}}) MERGE (n)-[:HAPPENED_AT {{time: '{time}'}}]->(d)")
+
+    results = []
+    for q in queries:
+        try:
+            graph.query(q)
+            results.append({"query": q, "status": "success"})
+        except Exception as e:
+            results.append({"query": q, "status": "error", "message": str(e)})
+
+    return json.dumps({"status": "success", "results": results})
+
+@mcp.tool()
+async def batch_link_nodes(links: list) -> str:
+    """
+    Створює декілька зв'язків між вузлами за один раз.
+    links - список словників (dict), де кожен містить: "source_id", "target_id", "type" та опціонально "props".
+    """
+    try:
+        graph = get_db()
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+    queries = []
+    for link in links:
+        source_id = link.get('source_id')
+        target_id = link.get('target_id')
+        rel_type = link.get('type')
+        props = link.get('props')
+        
+        if not source_id or not target_id or not rel_type:
+            continue
+            
+        if props:
+            ps = ", ".join([f"{k}: {e_str(v)}" for k, v in props.items()])
+            queries.append(f"MATCH (s {{id: '{source_id}'}}), (t {{id: '{target_id}'}}) MERGE (s)-[r:{rel_type}]->(t) SET r += {{{ps}}}")
+        else:
+            queries.append(f"MATCH (s {{id: '{source_id}'}}), (t {{id: '{target_id}'}}) MERGE (s)-[:{rel_type}]->(t)")
+
+    results = []
+    for q in queries:
+        try:
+            graph.query(q)
+            results.append({"query": q, "status": "success"})
+        except Exception as e:
+            results.append({"query": q, "status": "error", "message": str(e)})
+
+    return json.dumps({"status": "success", "results": results})
