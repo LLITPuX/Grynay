@@ -13,9 +13,21 @@ description: Навичка для управління довгостроков
 > - Під час `discovery-interview` — зберігай результати інтерв'ю та створену специфікацію.
 > - Під час `project-planner` — зберігай план проекту, ключові рішення.
 > - Під час `skill-creator` — зберігай створену навичку та її контекст.
+> - Під час проєктування архітектури чи графа — використовуй `graphrag-system-design` та зберігай архітектурні рішення.
+> - Під час перевірки здоров'я графа (аудиту) — використовуй навичку `graphrag-evaluation`.
 > - Під час кодингу — зберігай значущі архітектурні рішення та результати.
 >
 > Якщо користувач не ініціював `/db` сам, але працює над значущою задачею — **нагадай** йому про збереження сесії.
+
+> [!CAUTION]
+> **АБСОЛЮТНЕ ПРАВИЛО: ТРІАДА ВУЗЛІВ**
+> При **КОЖНІЙ** взаємодії з графом агент зобов'язаний створити повну тріаду:
+> - `/db` → `:Request` + `:Response` + `:Analysis`
+> - `/sa` → `:Feedback` + `:Response` + `:Analysis`
+> - `/ss` → (опціонально `:Feedback`) + `:Response` + `:Analysis` (session_summary)
+>
+> **Response без Analysis = порушення протоколу. Analysis без Response = неможливий.**
+> `last_event_id` сесії ЗАВЖДИ вказує на останній Analysis, бо це фінальний вузол тріади.
 
 Ця навичка активується, коли користувач починає діалог з використання спеціальних "протоколів сесії": `/db`, `/sa`, `/ss`. 
 
@@ -61,7 +73,7 @@ docker cp "c:\Antigarvity_workspace\falkordb-service\debug\payload.json" grynya-
 Деталі протоколу: `c:\Antigarvity_workspace\.agent\skills\memory-manager\protocols\protocol_ss.md`
 
 ## Приклад Структури JSON для `/db`
-*(Зверни увагу на наявність ВСІХ обов'язкових полів!)*
+*(Зверни увагу: тріада Request + Response + Analysis — ОБОВ'ЯЗКОВА!)*
 
 ```json
 {
@@ -77,11 +89,12 @@ docker cp "c:\Antigarvity_workspace\falkordb-service\debug\payload.json" grynya-
     "date": "2026-02-22",
     "year": 2026,
     "time": "19:00:00",
-    "last_event_id": "res_007_01",
+    "last_event_id": "ana_007_01",
     "next_links": [
       { "source_id": "session_006", "target_id": "session_007" },
       { "source_id": "session_007", "target_id": "req_007_01" },
-      { "source_id": "req_007_01", "target_id": "res_007_01" }
+      { "source_id": "req_007_01", "target_id": "res_007_01" },
+      { "source_id": "res_007_01", "target_id": "ana_007_01" }
     ]
   },
   "nodes": [
@@ -111,6 +124,22 @@ docker cp "c:\Antigarvity_workspace\falkordb-service\debug\payload.json" grynya-
       "relations": [
         { "type": "PART_OF", "target_id": "session_007" },
         { "type": "RESPONDS_TO", "target_id": "req_007_01" }
+      ]
+    },
+    {
+      "type": "Analysis",
+      "data": {
+        "id": "ana_007_01",
+        "name": "Analysis1",
+        "type": "response_analysis",
+        "verdict": "correct",
+        "rules_used": "protocol_db, grynya-schema",
+        "errors": "",
+        "lessons": "Перший обмін, помилок немає"
+      },
+      "relations": [
+        { "type": "PART_OF", "target_id": "session_007" },
+        { "type": "ANALYZES", "target_id": "res_007_01" }
       ]
     }
   ]
