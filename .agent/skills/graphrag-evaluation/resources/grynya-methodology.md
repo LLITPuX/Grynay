@@ -45,24 +45,25 @@ RETURN r.id, r.name
 
 **Очікування:** Порожній результат. Кожен Response ПОВИНЕН мати full_text.
 
-### 4. Response без Analysis
+### 4. Порушення Тріади (Request -> Response -> Analysis)
 
 ```cypher
-MATCH (r:Response) WHERE NOT EXISTS { MATCH (:Analysis)-[:ANALYZES]->(r) }
-RETURN r.id, r.name
+// Використовувати жорстке заперечення патерну замість OPTIONAL MATCH
+MATCH (req:Request) WHERE NOT (req)<-[:RESPONDS_TO]-(:Response)<-[:ANALYZES]-(:Analysis)
+RETURN req.id
 ```
 
-**Очікування:** Порожній результат (Правило Тріади: кожен Response має Analysis).
+**Очікування:** Порожній результат (Правило Тріади).
 
 ### 5. Orphan Entities (Сироти)
 
 ```cypher
-MATCH (e:Entity) WHERE NOT EXISTS { MATCH ()-[:MENTIONS]->(e) }
-AND NOT EXISTS { MATCH ()-[:INVOLVES]->(e) }
+MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-() AND NOT ()-[:INVOLVES]->(e)
 RETURN e.id, e.name
 ```
 
-**Очікування:** Мінімум сиріт. Кожна Entity має бути зв'язана хоча б з однією сесією.
+**Очікування:** Мінімум сиріт. Кожна Entity має бути зв'язана хоча б з однією сесією. 
+*(Примітка: Перед видаленням завжди перевіряй наявність перевернутих зв'язків, наприклад `(e)-[:INVOLVED_IN]->()` чи `(e)-[:MENTIONS]->()`, які могли утворитися внаслідок старих багів протоколу).*
 
 ### 6. Дублікати Entity
 
