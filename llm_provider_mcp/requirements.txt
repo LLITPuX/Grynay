@@ -1,0 +1,7 @@
+fastmcp>=0.4.1
+google-genai
+google-auth
+google-auth-oauthlib
+openai
+python-dotenv
+pydantic

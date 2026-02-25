@@ -49,6 +49,24 @@ services:
     networks:
       - grynya-net
 
+  llm_provider_mcp:
+    build:
+      context: ../llm_provider_mcp
+      dockerfile: Dockerfile
+    container_name: llm-provider-mcp
+    volumes:
+      - ../llm_provider_mcp:/app
+    environment:
+      - GEMINI_CLIENT_SECRET_PATH=${GEMINI_CLIENT_SECRET_PATH:-credentials/client_secret.json}
+      - GEMINI_TOKEN_PATH=${GEMINI_TOKEN_PATH:-credentials/token.json}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    command: [ "python", "src/server.py", "--sse" ]
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    networks:
+      - grynya-net
+
 volumes:
   falkordb_data:
     driver: local
