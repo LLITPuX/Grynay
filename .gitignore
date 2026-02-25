@@ -1,2 +1,13 @@
 # Логи сесій (бекапи) — не комітяться
 saved_sessions/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# Environment
+.env
+.env.*
