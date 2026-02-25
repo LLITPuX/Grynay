@@ -20,7 +20,7 @@
 
 ```cypher
 // Сесії без NEXT-зв'язку до попередньої (крім першої)
-MATCH (s:Session) WHERE NOT EXISTS { MATCH ()-[:NEXT]->(s) }
+MATCH (s:Session) WHERE NOT (()-->(s))
 AND s.id <> 'session_001'
 RETURN s.id, s.topic
 ```
@@ -30,7 +30,7 @@ RETURN s.id, s.topic
 ### 2. Сесії без LAST_EVENT
 
 ```cypher
-MATCH (s:Session) WHERE NOT EXISTS { MATCH (s)-[:LAST_EVENT]->() }
+MATCH (s:Session) WHERE NOT ((s)-[:LAST_EVENT]->())
 RETURN s.id, s.status
 ```
 
