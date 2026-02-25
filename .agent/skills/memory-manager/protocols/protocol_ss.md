@@ -17,6 +17,8 @@
 3.  **Відповідь:** Створи фінальний `:Response` з повним текстом своєї відповіді (СЛОВО В СЛОВО).
 4.  **Аналіз (Session Summary):** Створи `:Analysis` з типом `session_summary` використовуючи `mcp_falkordb_add_node`. Підсумуй усю сесію: `verdict`, `topics`, `tasks_completed`, `key_decisions`, `errors`, `lessons`. 
     *Зв'язки:* `SUMMARIZES` -> Session та `ANALYZES` -> Response.
+    > **УВАГА:** ЗАБОРОНЕНО передавати зв'язки `NEXT` через параметр `relations` інструменту `add_node`. Для `NEXT` переходь до пункту 4.1.
+4.1. **Створення хронологічного ланцюгу `NEXT`:** ОБОВ'ЯЗКОВО виклич інструмент `mcp_falkordb_batch_link_nodes` та передай масив зв'язків `NEXT` (Від попередньої події -> Feedback -> Response -> Analysis).
 5.  **Сутності (`:Entity`):** Якщо є нові сутності у фінальній репліці, використай `mcp_falkordb_batch_add_nodes`. Далі використай `mcp_falkordb_batch_link_nodes` для прив'язки Analysis до УСІХ сутностей, що існували в цій сесії (через `[:MENTIONS]`).
 6.  **LAST_EVENT:** Виклич `mcp_falkordb_update_last_event` для оновлення вказівника на фінальний Analysis.
 

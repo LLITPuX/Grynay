@@ -32,19 +32,27 @@
 Це автоматично створить вузли Session, Year, Day та налаштує їхні структурні зв'язки.
 
 ### Крок 2: Збереження вузлів тріади (Request, Response, Analysis)
-Виклич інструмент `mcp_falkordb_add_node` послідовно для кожного з трьох базових вузлів, передавши їх атрибути (у словнику `node_data`, де `id` є обов'язковим), `day_id` (напр., `d_2026_02_24`), поточний `time`, та необхідні базові зв'язки.
+Виклич інструмент `mcp_falkordb_add_node` послідовно для кожного з трьох базових вузлів, передавши їх атрибути (у словнику `node_data`, де `id` є обов'язковим), `day_id` (напр., `d_2026_02_24`), поточний `time`, та необхідні базові зв'язки (ЛИШЕ `PART_OF`, `RESPONDS_TO`, `ANALYZES` — тобто ті, де цільовий вузол вже існує і встановлюється вихідне ребро `target_id`).
+> **УВАГА:** ЗАБОРОНЕНО передавати зв'язки `NEXT` через параметр `relations` інструменту `add_node`, оскільки він не підтримує `source_id` для вхідних ребер! Всі `NEXT` створюються окремим кроком 2.1.
 
 **1. Request:**
 - Атрибути: `id`, `text` (запит користувача).
-- Зв'язки (у параметрі `relations`): `PART_OF` (target: поточна Session), `NEXT` (target: поточна Session, де source_id — попередня Session. *Або використай окремий виклик `mcp_falkordb_link_nodes` для попередньої сесії*).
+- Зв'язки (у параметрі `relations`): `PART_OF` (target: поточна Session).
 
 **2. Response:** 
 - Атрибути: `id`, `name`, `author: 'Grynya'`, `summary`, `full_text` (ПОВНИЙ текст СЛОВО В СЛОВО), `type: 'text'`.
-- Зв'язки: `PART_OF` (Session), `RESPONDS_TO` (Request), `NEXT` (де source — Request).
+- Зв'язки (у параметрі `relations`): `PART_OF` (target: Session), `RESPONDS_TO` (target: Request).
 
 **3. Analysis:**
 - Атрибути: `id`, `name`, `type: 'response_analysis'`, `verdict`, `rules_used`, `errors`, `lessons`.
-- Зв'язки: `PART_OF` (Session), `ANALYZES` (Response), `NEXT` (де source — Response).
+- Зв'язки (у параметрі `relations`): `PART_OF` (target: Session), `ANALYZES` (target: Response).
+
+### Крок 2.1: Створення хронологічних ланцюжків `[:NEXT]`
+ОБОВ'ЯЗКОВО виклич інструмент `mcp_falkordb_batch_link_nodes` (або `mcp_falkordb_link_nodes` для кожного зв'язку) та передай масив зв'язків `NEXT`, явно вказуючи `source_id` та `target_id`:
+1. Від попередньої сесії `Session` до поточної `Session` (якщо є).
+2. Від поточної сесії `Session` до щойно створеного `Request`.
+3. Від `Request` до `Response`.
+4. Від `Response` до `Analysis`.
 
 ### Крок 3: Витяг та пакетне збереження сутностей (batch tools)
 1. Проаналізуй запит користувача ТА свою відповідь. Витягни УСІ значущі концепції (Entities).
