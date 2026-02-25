@@ -57,7 +57,7 @@
 ### Крок 3: Витяг та пакетне збереження сутностей (batch tools)
 1. Проаналізуй запит користувача ТА свою відповідь. Витягни УСІ значущі концепції (Entities).
 2. Виклич інструмент `mcp_falkordb_batch_add_nodes`, передавши `node_type: "Entity"` та масив цих сутностей у параметр `nodes` (для `:Entity` day_id та time передавати не потрібно).
-3. Виклич інструмент `mcp_falkordb_batch_link_nodes` передавши масив всіх зв'язків для сутностей: `INVOLVED_IN` (target: поточна Session) та `MENTIONS` (source: Request/Response/Analysis, target: Entity).
+3. Виклич інструмент `mcp_falkordb_batch_link_nodes` передавши масив всіх зв'язків для сутностей: `INVOLVES` (source: поточна Session, target: Entity) та `MENTIONS` (source: Request/Response/Analysis, target: Entity).
 
 ### Крок 4: Оновлення LAST_EVENT
 Виклич інструмент `mcp_falkordb_update_last_event`, щоб оновити вказівник `LAST_EVENT` сесії на ID вузла Analysis.
