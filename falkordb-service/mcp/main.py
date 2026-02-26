@@ -3,14 +3,23 @@ import logging
 import json
 import redis.asyncio as redis
 from fastapi import FastAPI, Request
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 
-# Налаштування логування
-logging.basicConfig(level=logging.INFO)
+import sys
+# Налаштування логування - ПРИМУСОВО в stderr для безпеки stdio
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stderr
+)
 logger = logging.getLogger("mcp-falkordb")
 
 # Ініціалізація FastAPI
 app = FastAPI(title="FalkorDB MCP Server (Async)", version="0.1.0")
+
+# Дозволяємо будь-які хости (актуально для роботи всередині Docker та SSE)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
 # Глобальні змінні бази даних
 db_client = None
