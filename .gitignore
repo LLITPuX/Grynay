@@ -14,3 +14,6 @@ venv/
 
 # LLM Provider Credentials
 llm_provider_mcp/credentials/
+
+# Base Documentation
+docs/

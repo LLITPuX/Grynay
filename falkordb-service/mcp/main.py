@@ -23,7 +23,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
 # Глобальні змінні бази даних
 db_client = None
-GRAPH_NAME = "Grynya"
+GRAPH_NAME = os.getenv("GRAPH_NAME", "Grynya")
 
 async def get_db():
     global db_client
