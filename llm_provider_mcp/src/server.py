@@ -161,6 +161,171 @@ def call_openai(prompt: str, system_prompt: str, model: str) -> str:
         traceback.print_exc()
         return f"OpenAI API Error: {str(e)}"
 
+SKILLS_DIR = os.path.join(os.path.dirname(__file__), "..", ".gemini", "antigravity", "skills")
+
+def load_skill(skill_name: str) -> str:
+    """
+    Завантажує вміст SKILL.md з папки .gemini/antigravity/skills/<skill_name>/.
+    Повертає текст скілу або fallback-промпт якщо файл не знайдено.
+    """
+    skill_path = os.path.join(SKILLS_DIR, skill_name, "SKILL.md")
+    skill_path = os.path.normpath(skill_path)
+    if os.path.exists(skill_path):
+        with open(skill_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        print(f"[load_skill] Loaded skill '{skill_name}' from {skill_path}")
+        # Strip YAML frontmatter (--- ... ---) — передаємо тільки тіло інструкцій
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                content = parts[2].strip()
+        return content
+    else:
+        print(f"[load_skill] Skill '{skill_name}' not found at {skill_path}, using fallback.")
+        return (
+            "You are a graph research agent. Use query_graph tool to search FalkorDB. "
+            "MANDATORY: call query_graph at least once. Start with: "
+            "MATCH (n) RETURN labels(n) AS type, count(n) AS cnt ORDER BY cnt DESC. "
+            "Return valid JSON: {\"summary\": \"...\", \"found_nodes\": [], "
+            "\"graphs_searched\": [], \"queries_executed\": [], \"is_empty\": true/false}"
+        )
+
+def _get_gemini_credentials():
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    token_path = os.environ.get("GEMINI_TOKEN_PATH", "credentials/token.json")
+    if not os.path.exists(token_path):
+        raise FileNotFoundError(f"Token file not found at {token_path}")
+    creds = Credentials.from_authorized_user_file(token_path)
+    if not creds.valid and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    return creds
+
+def _gemini_api_call(url: str, headers: dict, payload: dict) -> dict:
+    """Синхронний HTTP виклик до Gemini API — запускається через asyncio.to_thread."""
+    import requests as http_requests
+    response = http_requests.post(url, headers=headers, json=payload, timeout=60)
+    response.raise_for_status()
+    return response.json()
+
+
+async def call_gemini_agentic_loop(
+    prompt: str,
+    system_prompt: str,
+    model: str,
+    falkordb_session,
+    max_iterations: int = 10
+) -> tuple[str, list[str], list[str]]:
+    """
+    Запускає Gemini у агентному циклі з Function Calling для query_graph.
+    HTTP-виклики до Gemini виконуються через asyncio.to_thread (не блокують event loop).
+    Повертає: (final_text, queries_executed, graphs_searched)
+    """
+    creds = await asyncio.to_thread(_get_gemini_credentials)
+
+    if not model.startswith("models/"):
+        model = f"models/{model}"
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/{model}:generateContent"
+    headers = {"Authorization": f"Bearer {creds.token}", "Content-Type": "application/json"}
+
+    tools_declaration = [{
+        "functionDeclarations": [{
+            "name": "query_graph",
+            "description": "Execute a Cypher query against FalkorDB graph database and return results.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {
+                        "type": "STRING",
+                        "description": "The Cypher query to execute"
+                    },
+                    "graphs": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "description": "List of graph names to search (e.g. ['Grynya', 'Cursa4']). Defaults to current graph."
+                    }
+                },
+                "required": ["query"]
+            }
+        }]
+    }]
+
+    contents = [{"role": "user", "parts": [{"text": prompt}]}]
+    queries_executed = []
+    graphs_searched = set()
+    final_text = ""
+
+    for iteration in range(max_iterations):
+        payload = {"contents": contents, "tools": tools_declaration}
+        if system_prompt:
+            payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+
+        print(f"[agentic_loop] Iteration {iteration + 1}/{max_iterations}")
+        try:
+            data = await asyncio.to_thread(_gemini_api_call, url, headers, payload)
+        except Exception as api_err:
+            print(f"[agentic_loop] Gemini API call failed: {api_err}")
+            raise
+
+        candidates = data.get("candidates", [])
+        if not candidates:
+            prompt_feedback = data.get("promptFeedback", {})
+            block_reason = prompt_feedback.get("blockReason", "UNKNOWN")
+            print(f"[agentic_loop] Empty candidates! blockReason={block_reason}, raw={json.dumps(data)[:300]}")
+            break
+
+        candidate = candidates[0]
+        content = candidate.get("content", {})
+        parts = content.get("parts", [])
+        finish_reason = candidate.get("finishReason", "STOP")
+
+        print(f"[agentic_loop] finishReason={finish_reason}, parts_count={len(parts)}")
+
+        function_calls = [p["functionCall"] for p in parts if "functionCall" in p]
+
+        if not function_calls:
+            final_text = "".join(p.get("text", "") for p in parts)
+            print(f"[agentic_loop] Final text response ({len(final_text)} chars)")
+            break
+
+        contents.append({"role": "model", "parts": parts})
+
+        function_responses = []
+        for fc in function_calls:
+            fc_name = fc["name"]
+            fc_args = fc.get("args", {})
+            cypher = fc_args.get("query", "")
+            fc_graphs = fc_args.get("graphs", None)
+
+            queries_executed.append(cypher)
+            if fc_graphs:
+                graphs_searched.update(fc_graphs)
+
+            print(f"[agentic_loop] Executing {fc_name}: {cypher[:80]}...")
+            try:
+                result = await falkordb_session.call_tool(
+                    "query_graph",
+                    arguments={"query": cypher, "graphs": fc_graphs} if fc_graphs else {"query": cypher}
+                )
+                result_text = result.content[0].text if result.content else "{}"
+            except Exception as e:
+                result_text = json.dumps({"status": "error", "message": str(e)})
+
+            function_responses.append({
+                "functionResponse": {
+                    "name": fc_name,
+                    "response": {"result": result_text}
+                }
+            })
+
+        contents.append({"role": "user", "parts": function_responses})
+    else:
+        final_text = f"Досягнуто ліміт ітерацій ({max_iterations}). Останні результати збережено."
+
+    return final_text, queries_executed, list(graphs_searched)
+
+
 async def agent_task_wrapper(task_id: str, prompt: str, system_prompt: str, model: str):
     """Background wrapper that executes the LLM task via a thread and manages state."""
     from mcp.client.sse import sse_client
@@ -306,6 +471,130 @@ def cancel_agent_task(task_id: str) -> str:
             return json.dumps({"status": "error", "message": f"Task {task_id} has no running task object."})
     else:
         return json.dumps({"status": "error", "message": f"Task {task_id} is not running (current status: {state.status})."})
+
+@mcp.tool()
+async def research_graph(
+    user_query: str,
+    graphs: list = None,
+    model: str = "gemini-2.5-flash",
+    skill_name: str = "graph-research"
+) -> str:
+    """
+    Досліджує граф(и) FalkorDB за запитом користувача через Klim (Gemini Function Calling).
+    Klim самостійно формує та виконує Cypher запити в агентному циклі.
+    Зберігає вузол :Research в граф та повертає node_id + summary.
+
+    user_query: запит/тема для дослідження (зазвичай перший запит користувача в сесії)
+    graphs: список графів для пошуку (наприклад ['Grynya', 'Cursa4']). За замовчуванням — ['Grynya'].
+    model: модель Gemini для використання (default: gemini-2.5-flash)
+    skill_name: назва скілу в .gemini/antigravity/skills/<skill_name>/SKILL.md (default: graph-research)
+    """
+    from mcp.client.sse import sse_client
+    from mcp.client.session import ClientSession
+    import datetime
+
+    server_url = "http://grynya-mcp-server:8000/sse"
+    print(f"[research_graph] Starting research for query: {user_query[:80]}...")
+    print(f"[research_graph] Target graphs: {graphs}, skill: {skill_name}")
+
+    skill_prompt = load_skill(skill_name)
+
+    try:
+        async with sse_client(server_url, headers={"Host": "localhost"}) as streams:
+            async with ClientSession(streams[0], streams[1]) as session:
+                await session.initialize()
+                print("[research_graph] FalkorDB session initialized.")
+
+                graphs_to_search = graphs if graphs else ["Grynya"]
+                search_prompt = (
+                    f"Search graphs {graphs_to_search} for information relevant to this query:\n"
+                    f"«{user_query}»\n\n"
+                    f"Follow the instructions in your system prompt. Return valid JSON."
+                )
+
+                final_text, queries_executed, graphs_searched = await call_gemini_agentic_loop(
+                    prompt=search_prompt,
+                    system_prompt=skill_prompt,
+                    model=model,
+                    falkordb_session=session
+                )
+
+                if not graphs_searched:
+                    graphs_searched = graphs_to_search
+
+                now = datetime.datetime.now(datetime.timezone.utc)
+                research_id = f"research_{now.strftime('%Y%m%d_%H%M%S')}"
+                day_id = f"d_{now.strftime('%Y_%m_%d')}"
+
+                def _strip_markdown_json(text: str) -> str:
+                    """Видаляє ```json ... ``` або ``` ... ``` обгортку якщо є."""
+                    text = text.strip()
+                    if text.startswith("```"):
+                        lines = text.split("\n")
+                        # Відкидаємо перший рядок (```json або ```) і останній (```)
+                        inner = lines[1:] if lines[-1].strip() == "```" else lines[1:]
+                        if inner and inner[-1].strip() == "```":
+                            inner = inner[:-1]
+                        text = "\n".join(inner).strip()
+                    return text
+
+                clean_text = _strip_markdown_json(final_text) if final_text else ""
+                try:
+                    report_data = json.loads(clean_text)
+                    summary = report_data.get("summary", clean_text[:300])
+                    found_nodes = report_data.get("found_nodes", [])
+                    source_node_ids = [n["id"] for n in found_nodes if "id" in n]
+                    is_empty = report_data.get("is_empty", not bool(found_nodes))
+                except (json.JSONDecodeError, TypeError):
+                    summary = clean_text[:500] if clean_text else "Дослідження завершено, результати відсутні."
+                    source_node_ids = []
+                    is_empty = not bool(clean_text)
+
+                node_data = {
+                    "id": research_id,
+                    "name": f"Research: {user_query[:60]}",
+                    "query": user_query,
+                    "summary": summary,
+                    "full_report": final_text[:4000] if final_text else "",
+                    "cypher_queries": json.dumps(queries_executed),
+                    "graphs_searched": json.dumps(graphs_searched),
+                    "source_node_ids": json.dumps(source_node_ids),
+                    "is_empty": is_empty,
+                    "time": now.isoformat()
+                }
+
+                save_result = await session.call_tool("add_node", arguments={
+                    "node_type": "Research",
+                    "node_data": node_data,
+                    "day_id": day_id,
+                    "time": now.strftime("%H:%M:%S")
+                })
+                print(f"[research_graph] :Research node saved: {research_id}")
+
+                if source_node_ids:
+                    links = [
+                        {"source_id": research_id, "target_id": nid, "type": "SOURCED_FROM"}
+                        for nid in source_node_ids[:20]
+                    ]
+                    await session.call_tool("batch_link_nodes", arguments={"links": links})
+                    print(f"[research_graph] Linked {len(links)} source nodes.")
+
+                return json.dumps({
+                    "status": "success",
+                    "research_node_id": research_id,
+                    "summary": summary,
+                    "graphs_searched": graphs_searched,
+                    "queries_executed_count": len(queries_executed),
+                    "source_nodes_found": len(source_node_ids),
+                    "is_empty": is_empty
+                })
+
+    except Exception as e:
+        import traceback
+        error_msg = traceback.format_exc()
+        print(f"[research_graph] Error: {error_msg}")
+        return json.dumps({"status": "error", "message": str(e)})
+
 
 @mcp.tool()
 def check_task_status(task_id: str) -> str:

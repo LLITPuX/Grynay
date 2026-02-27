@@ -131,13 +131,29 @@ def format_falkordb_results(res):
 
 
 @mcp.tool()
-async def query_graph(query: str) -> str:
-    """Виконує Cypher запит до бази FalkorDB та повертає результат."""
+async def query_graph(query: str, graphs: list = None) -> str:
+    """
+    Виконує Cypher запит до бази FalkorDB та повертає результат.
+    graphs: список назв графів для пошуку (наприклад ['Grynya', 'Cursa4']).
+            Якщо не вказано — використовує поточний граф за замовчуванням (GRAPH_NAME env).
+            Якщо вказано кілька — виконує запит у кожному та об'єднує результати.
+    """
+    target_graphs = graphs if graphs else [GRAPH_NAME]
     try:
         r = await get_db()
-        res = await r.execute_command("GRAPH.QUERY", GRAPH_NAME, query)
-        formatted = format_falkordb_results(res)
-        return json.dumps({"status": "success", "results": formatted})
+        if len(target_graphs) == 1:
+            res = await r.execute_command("GRAPH.QUERY", target_graphs[0], query)
+            formatted = format_falkordb_results(res)
+            return json.dumps({"status": "success", "graph": target_graphs[0], "results": formatted})
+        
+        combined = {}
+        for graph_name in target_graphs:
+            try:
+                res = await r.execute_command("GRAPH.QUERY", graph_name, query)
+                combined[graph_name] = format_falkordb_results(res)
+            except Exception as e:
+                combined[graph_name] = {"error": str(e)}
+        return json.dumps({"status": "success", "multi_graph": True, "results": combined})
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
