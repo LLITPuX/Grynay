@@ -372,6 +372,21 @@ async def delete_link(source_id: str, target_id: str, rel_type: str) -> str:
 
 
 @mcp.tool()
+async def list_graphs() -> str:
+    """
+    Повертає список усіх графів у FalkorDB (GRAPH.LIST).
+    Корисно для перевірки наявності Grynya, Cursa4, Grynya_v2.0.
+    """
+    try:
+        r = await get_db()
+        raw = await r.execute_command("GRAPH.LIST")
+        names = [decode_falkor(x) for x in raw] if isinstance(raw, list) else []
+        return json.dumps({"status": "success", "graphs": names})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool()
 async def copy_graph(source_graph: str, destination_graph: str) -> str:
     """
     Копіює граф повністю в новий граф (FalkorDB GRAPH.COPY).
