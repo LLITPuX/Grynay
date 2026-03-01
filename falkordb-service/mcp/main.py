@@ -369,3 +369,22 @@ async def delete_link(source_id: str, target_id: str, rel_type: str) -> str:
         return json.dumps({"status": "success", "query": query})
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool()
+async def copy_graph(source_graph: str, destination_graph: str) -> str:
+    """
+    Копіює граф повністю в новий граф (FalkorDB GRAPH.COPY).
+    Джерело залишається без змін. Використовуй для міграції Cursa4 → Grynya_v2.0.
+    """
+    try:
+        r = await get_db()
+        await r.execute_command("GRAPH.COPY", source_graph, destination_graph)
+        return json.dumps({
+            "status": "success",
+            "message": f"Graph '{source_graph}' copied to '{destination_graph}'",
+            "source_graph": source_graph,
+            "destination_graph": destination_graph
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})

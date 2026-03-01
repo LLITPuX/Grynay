@@ -1,4 +1,4 @@
----
+﻿---
 name: memory-manager
 description: |
   Навичка для управління довгостроковою пам'яттю (графіком знань) Агента.
@@ -47,6 +47,13 @@ description: |
 - `mcp_falkordb_query_graph`: Виконання Cypher запитів.
 
 *Це гарантує архітектурну чистоту та позбавляє необхідності створювати тимчасові JSON-файли чи використовувати bash скрипти.*
+
+
+## Графи пам'яті (Grynya / Grynya_v2.0)
+
+- **Запис сесій:** Усі операції create_session, add_node, link_nodes, update_last_event виконуються в графі **Grynya** (за замовчуванням). Це основний production-граф.
+- **Рефакторинг схеми:** Граф **Grynya_v2.0** — копія колишнього графа Cursa4; використовується для паралельної роботи над новою схемою. Пошук та експерименти — у query_graph можна вказати graphs: [\"Grynya\", \"Grynya_v2.0\"].
+- Деталі та міграція Cursa4 → Grynya_v2.0: c:\Antigarvity_workspace\.agent\skills\memory-manager\graphs.md. Інструмент копіювання: mcp_falkordb_copy_graph(source_graph, destination_graph).
 
 ## Схема Вузлів та Зв'язків
 
